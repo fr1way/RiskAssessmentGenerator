@@ -168,11 +168,11 @@ async def assess_company(request: AssessmentRequest):
             
             # Dedup logs
             if event not in sent_logs:
-                yield event + "\n"
+                yield f"data: {event}\n\n"
                 # Only track logs for dedup, not images (images are large)
                 if "type" in event and "log" in event: 
                     sent_logs.add(event)
             
             event_queue.task_done()
 
-    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

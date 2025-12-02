@@ -10,48 +10,41 @@ import LivePreview from "@/components/LivePreview";
 function ReportContent() {
     const searchParams = useSearchParams();
     const companyQuery = searchParams.get("company");
+    const addressQuery = searchParams.get("address"); // Legacy fallback
+    const stateQuery = searchParams.get("state");
+    const typeQuery = searchParams.get("type");
 
     const [data, setData] = useState<FullAssessmentResponse | null>(null);
     const [logs, setLogs] = useState<any[]>([]);
+    const [agents, setAgents] = useState<Record<string, any>>({}); // Multi-agent state
     const [summary, setSummary] = useState("");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
-
-    // Live Preview State
-    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-    const [previewImage, setPreviewImage] = useState<string | null>(null);
 
     useEffect(() => {
         if (!companyQuery) return;
 
         const fetchData = async () => {
+            setLoading(true);
+            setError("");
+            setLogs([]);
+            setAgents({});
+            setSummary("");
+            setData(null);
+
             try {
-                // Read new params
-                const stateParam = searchParams.get("state") || "Unknown";
-                const typeParam = searchParams.get("type") || "other";
-
-                // Fallback for legacy URL format (comma separated) if needed, but prioritizing new params
-                let name = companyQuery;
-                let address = stateParam;
-
-                if (companyQuery.includes(",")) {
-                    const parts = companyQuery.split(",");
-                    name = parts[0].trim();
-                    // If state param wasn't provided, try to extract from legacy string
-                    if (stateParam === "Unknown" && parts.length > 1) {
-                        address = parts.slice(1).join(",").trim();
-                    }
-                }
+                // Construct payload
+                const payload = {
+                    companyName: companyQuery,
+                    companyAddress: addressQuery || stateQuery || "Unknown",
+                    state: stateQuery || "Unknown",
+                    companyType: typeQuery || "other"
+                };
 
                 const response = await fetch("http://localhost:8000/api/assess", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        companyName: name,
-                        companyAddress: address,
-                        state: stateParam !== "Unknown" ? stateParam : address,
-                        companyType: typeParam
-                    })
+                    body: JSON.stringify(payload)
                 });
 
                 if (!response.body) throw new Error("No response body");
@@ -70,36 +63,47 @@ function ReportContent() {
 
                     for (const line of lines) {
                         if (!line.trim()) continue;
-                        try {
-                            const msg = JSON.parse(line);
-                            if (msg.type === "log") {
-                                setLogs(prev => [...prev, { ...msg, timestamp: Date.now() }]);
-                            } else if (msg.type === "preview") {
-                                // Update Live Preview
-                                setPreviewUrl(msg.url);
-                                setPreviewImage(msg.image);
-                            } else if (msg.type === "summary") {
-                                setSummary(msg.content);
-                            } else if (msg.type === "result") {
-                                setData(msg.data);
-                            } else if (msg.type === "error") {
-                                setError(msg.message);
+                        if (line.startsWith("data: ")) {
+                            try {
+                                const msg = JSON.parse(line.slice(6));
+                                if (msg.type === "log") {
+                                    setLogs(prev => [...prev, { ...msg, timestamp: Date.now() }]);
+                                } else if (msg.type === "preview") {
+                                    // Update specific agent state
+                                    setAgents(prev => ({
+                                        ...prev,
+                                        [msg.agent_id]: {
+                                            id: msg.agent_id,
+                                            url: msg.url,
+                                            image: msg.image,
+                                            status: msg.status || "Active",
+                                            lastUpdate: Date.now()
+                                        }
+                                    }));
+                                } else if (msg.type === "summary") {
+                                    setSummary(prev => prev + msg.content);
+                                } else if (msg.type === "result") {
+                                    setData(msg.data);
+                                    setLoading(false);
+                                } else if (msg.type === "error") {
+                                    setError(msg.message);
+                                    setLoading(false);
+                                }
+                            } catch (e) {
+                                console.error("Error parsing stream:", e);
                             }
-                        } catch (e) {
-                            console.error("Error parsing stream:", e);
                         }
                     }
                 }
             } catch (err) {
                 console.error(err);
                 setError("Failed to generate risk assessment. Please try again.");
-            } finally {
                 setLoading(false);
             }
         };
 
         fetchData();
-    }, [companyQuery]);
+    }, [companyQuery, addressQuery, stateQuery, typeQuery]);
 
     if (!companyQuery) {
         return <div className="text-white text-center mt-20">No company specified.</div>;
@@ -118,8 +122,7 @@ function ReportContent() {
                         <div className="lg:col-span-2">
                             <div className="sticky top-8 space-y-6">
                                 <LivePreview
-                                    url={previewUrl}
-                                    image={previewImage}
+                                    agents={agents}
                                     isActive={loading}
                                 />
                             </div>

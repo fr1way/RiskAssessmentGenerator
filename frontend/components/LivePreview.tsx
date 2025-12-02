@@ -1,70 +1,88 @@
-"use client";
+import React from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Activity, Globe, Shield } from 'lucide-react';
 
-import React from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Eye, Globe, Loader2 } from "lucide-react";
+interface AgentState {
+    id: string;
+    url: string;
+    image: string | null;
+    status: string;
+    lastUpdate: number;
+}
 
 interface LivePreviewProps {
-    url: string | null;
-    image: string | null;
+    agents: Record<string, AgentState>;
     isActive: boolean;
 }
 
-export default function LivePreview({ url, image, isActive }: LivePreviewProps) {
-    if (!isActive && !image) return null;
+export default function LivePreview({ agents, isActive }: LivePreviewProps) {
+    const activeAgents = Object.values(agents).filter(a => Date.now() - a.lastUpdate < 10000); // Hide stale agents > 10s
+
+    if (!isActive && activeAgents.length === 0) return null;
 
     return (
-        <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="rounded-xl overflow-hidden border border-white/10 bg-black/40 backdrop-blur-md shadow-2xl"
-        >
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 bg-white/5 border-b border-white/5">
+        <div className="w-full space-y-4">
+            <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                    <div className="relative">
-                        <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                        <div className="absolute inset-0 w-2 h-2 rounded-full bg-red-500 animate-ping opacity-75" />
-                    </div>
-                    <span className="text-xs font-bold text-white uppercase tracking-wider">Live Agent Feed</span>
+                    <Activity className="w-5 h-5 text-green-400 animate-pulse" />
+                    <h3 className="text-lg font-semibold text-white">Live Agent Command Center</h3>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Eye className="w-3 h-3" />
-                    <span>Monitoring</span>
+                <div className="text-xs text-slate-400">
+                    {activeAgents.length} Active Agents
                 </div>
             </div>
 
-            {/* Content */}
-            <div className="relative aspect-video bg-black/60 flex items-center justify-center">
-                <AnimatePresence mode="wait">
-                    {image ? (
-                        <motion.img
-                            key={url} // Re-animate on URL change
-                            src={image}
-                            alt="Live Agent View"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="w-full h-full object-cover"
-                        />
-                    ) : (
-                        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-                            <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-                            <span className="text-sm">Waiting for visual feed...</span>
-                        </div>
-                    )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <AnimatePresence>
+                    {activeAgents.map((agent) => (
+                        <motion.div
+                            key={agent.id}
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.9 }}
+                            className="relative aspect-video bg-slate-900 rounded-lg overflow-hidden border border-slate-700 shadow-lg group"
+                        >
+                            {/* Header Bar */}
+                            <div className="absolute top-0 left-0 right-0 h-8 bg-black/60 backdrop-blur-sm flex items-center justify-between px-3 z-10">
+                                <div className="flex items-center gap-2 text-xs font-mono text-white">
+                                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                                    {agent.id}
+                                </div>
+                                <div className="text-[10px] text-slate-300 truncate max-w-[150px]">
+                                    {agent.status}
+                                </div>
+                            </div>
+
+                            {/* Main Preview Image */}
+                            {agent.image ? (
+                                <img
+                                    src={agent.image}
+                                    alt={`Preview ${agent.id}`}
+                                    className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
+                                />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center text-slate-600">
+                                    <Globe className="w-8 h-8 animate-pulse" />
+                                </div>
+                            )}
+
+                            {/* URL Overlay (Bottom) */}
+                            <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
+                                <p className="text-[10px] text-slate-400 truncate font-mono">
+                                    {agent.url}
+                                </p>
+                            </div>
+                        </motion.div>
+                    ))}
                 </AnimatePresence>
 
-                {/* URL Overlay */}
-                {url && (
-                    <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/90 to-transparent">
-                        <div className="flex items-center gap-2 text-xs text-white/80 font-mono truncate">
-                            <Globe className="w-3 h-3 flex-shrink-0 text-indigo-400" />
-                            <span className="truncate">{url}</span>
-                        </div>
+                {activeAgents.length === 0 && isActive && (
+                    <div className="col-span-2 h-48 flex flex-col items-center justify-center text-slate-500 border border-dashed border-slate-700 rounded-lg">
+                        <Shield className="w-8 h-8 mb-2 animate-bounce" />
+                        <p>Initializing Agents...</p>
                     </div>
                 )}
             </div>
-        </motion.div>
+        </div>
     );
 }

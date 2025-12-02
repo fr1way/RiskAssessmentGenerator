@@ -176,179 +176,172 @@ async def browse_node(state: AgentState):
     
     extracted_content = []
     
-    async def fetch_url(url):
+    async def fetch_url(url, agent_id):
         try:
             async with async_playwright() as p:
                 # HEADLESS=FALSE allows the user to "literally see" the agent working
-                browser = await p.chromium.launch(headless=False, slow_mo=1000, args=["--disable-blink-features=AutomationControlled"]) 
+                browser = await p.chromium.launch(headless=False, slow_mo=100, args=["--disable-blink-features=AutomationControlled"]) 
                 
-                # Randomize user agent slightly
                 context = await browser.new_context(
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                     viewport={"width": 1280, "height": 720},
                     device_scale_factor=1,
                 )
                 
-                # STEALTH: Inject scripts to hide automation
+                # STEALTH & VISUALS: Inject scripts
                 await context.add_init_script("""
-                    // Remove webdriver property
-                    Object.defineProperty(navigator, 'webdriver', {
-                        get: () => undefined
-                    });
-                    
-                    // Override automation indicators
-                    window.chrome = {
-                        runtime: {}
+                    // 1. Stealth
+                    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                    window.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+
+                    // 2. Visual AI Cursor
+                    window.installCursor = () => {
+                        if (document.getElementById('ai-cursor')) return;
+                        const cursor = document.createElement('div');
+                        cursor.id = 'ai-cursor';
+                        cursor.style.position = 'fixed';
+                        cursor.style.width = '20px';
+                        cursor.style.height = '20px';
+                        cursor.style.borderRadius = '50%';
+                        cursor.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
+                        cursor.style.border = '2px solid white';
+                        cursor.style.boxShadow = '0 0 10px rgba(255, 0, 0, 0.5)';
+                        cursor.style.zIndex = '999999';
+                        cursor.style.pointerEvents = 'none';
+                        cursor.style.transition = 'all 0.2s ease-out';
+                        cursor.style.transform = 'translate(-50%, -50%)';
+                        document.body.appendChild(cursor);
                     };
-                    
-                    // Fake plugin array
-                    Object.defineProperty(navigator, 'plugins', {
-                        get: () => [1, 2, 3, 4, 5]
-                    });
-                    
-                    // Pass languages check
-                    Object.defineProperty(navigator, 'languages', {
-                        get: () => ['en-US', 'en']
-                    });
+
+                    window.moveCursor = (x, y) => {
+                        const cursor = document.getElementById('ai-cursor');
+                        if (cursor) {
+                            cursor.style.left = x + 'px';
+                            cursor.style.top = y + 'px';
+                        }
+                    };
                 """)
                 
                 page = await context.new_page()
                 
-                # Resource Blocking (Speed + Stealth: Mimic AdBlock)
+                # Resource Blocking
                 await page.route("**/*", lambda route: 
                     route.abort() if route.request.resource_type in ["image", "media", "font"] 
                     else route.continue_()
                 )
                 
+                # Helper to stream frame
+                async def stream_frame(status="Active"):
+                    try:
+                        screenshot = await page.screenshot(type="jpeg", quality=40)
+                        b64 = base64.b64encode(screenshot).decode("utf-8")
+                        await event_queue.put(json.dumps({
+                            "type": "preview",
+                            "agent_id": agent_id,
+                            "url": url,
+                            "status": status,
+                            "image": f"data:image/jpeg;base64,{b64}"
+                        }))
+                    except: pass
+
+                # Helper to move cursor visibly
+                async def move_mouse_human(x, y):
+                    try:
+                        await page.evaluate(f"window.moveCursor({x}, {y})")
+                        await page.mouse.move(x, y, steps=5)
+                        await stream_frame("Moving")
+                    except: pass
+
                 try:
-                    await event_queue.put(json.dumps({
-                        "type": "log", 
-                        "message": f"🌐 Agent connecting to: {url}"
-                    }))
+                    await event_queue.put(json.dumps({"type": "log", "message": f"🌐 {agent_id} connecting to: {url}"}))
                     
                     await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                    await page.evaluate("window.installCursor()")
                     
-                    # Human-like random delay
-                    await page.wait_for_timeout(random.uniform(1000, 2000)) 
-                    
-                    # Human-like Mouse Movement (Simulate "waking up")
-                    await page.mouse.move(random.randint(100, 500), random.randint(100, 500), steps=10)
+                    # Initial "Wake Up" Move
+                    await move_mouse_human(random.randint(100, 500), random.randint(100, 500))
+                    await page.wait_for_timeout(random.uniform(500, 1000))
                     
                     # --- Human Verification Logic ---
                     try:
-                        # Check for common "Verify you are human" checkboxes (Cloudflare, etc.)
-                        # 1. Look for Cloudflare Turnstile
                         turnstile = page.locator("iframe[src*='challenges.cloudflare.com']")
                         if await turnstile.count() > 0:
-                            await event_queue.put(json.dumps({"type": "log", "message": "🤖 Agent detected Cloudflare challenge. Attempting to verify..."}))
-                            # Sometimes the checkbox is inside the iframe
+                            await event_queue.put(json.dumps({"type": "log", "message": f"🤖 {agent_id} detected Cloudflare..."}))
                             frame = turnstile.content_frame
                             if frame:
                                 checkbox = frame.locator("input[type='checkbox']")
                                 if await checkbox.count() > 0:
-                                    await checkbox.click()
-                                    await page.wait_for_timeout(3000) # Wait for challenge to solve
-                        
-                        # 2. Generic "Verify" buttons
-                        verify_btn = page.locator("button:has-text('Verify you are human'), button:has-text('I am human')")
-                        if await verify_btn.count() > 0:
-                            await event_queue.put(json.dumps({"type": "log", "message": "🤖 Agent clicking verification button..."}))
-                            await verify_btn.first.click()
-                            await page.wait_for_timeout(3000)
-                            
-                    except Exception as e:
-                        # Don't fail the whole browse if verification logic fails
-                        pass
+                                    box = await checkbox.bounding_box()
+                                    if box:
+                                        await move_mouse_human(box['x'] + 10, box['y'] + 10)
+                                        await checkbox.click()
+                                        await stream_frame("Verifying")
+                                        await page.wait_for_timeout(3000)
+                    except: pass
                     # --------------------------------
-                    
-                    # --- Popup Killer & Cookie Consent ---
+
+                    # --- Popup Killer ---
                     try:
-                        # Common selectors for modals/overlays
                         close_selectors = [
-                            "button[aria-label='Close']", 
-                            ".close", 
-                            "#close-button", 
-                            "button:has-text('No thanks')", 
-                            "button:has-text('Not now')",
-                            "button:has-text('Accept all')", 
-                            "button:has-text('Accept Cookies')",
-                            "[aria-label='Close modal']",
-                            # Reddit Specific
-                            "button:has-text('Continue without logging in')",
-                            "button:has-text('Not now')",
-                            "shreddit-async-loader[bundlename='comment_body_header']", # Sometimes blocks content
-                            "button._2Btn269-rG1-T1gU-e0-n", # Obfuscated reddit close button (example)
-                            "div[role='dialog'] button[aria-label='Close']"
+                            "button[aria-label='Close']", ".close", "#close-button", 
+                            "button:has-text('No thanks')", "button:has-text('Not now')",
+                            "button:has-text('Accept all')", "button:has-text('Accept Cookies')",
+                            "[aria-label='Close modal']", "button:has-text('Continue without logging in')"
                         ]
                         for selector in close_selectors:
                             if await page.locator(selector).count() > 0:
-                                # await event_queue.put(json.dumps({"type": "log", "message": "🧹 Agent clearing popup/overlay..."}))
-                                try:
-                                    await page.locator(selector).first.click(timeout=1000)
+                                loc = page.locator(selector).first
+                                box = await loc.bounding_box()
+                                if box:
+                                    await move_mouse_human(box['x'] + box['width']/2, box['y'] + box['height']/2)
+                                    await loc.click(timeout=1000)
+                                    await stream_frame("Closing Popup")
                                     await page.wait_for_timeout(500)
-                                except:
-                                    pass
-                    except:
-                        pass
-                    # -------------------------------------
+                    except: pass
+                    # ---------------------
 
-                    # Capture Screenshot for Live Preview (Clean of popups)
-                    try:
-                        screenshot_bytes = await page.screenshot(type="jpeg", quality=50)
-                        screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
-                        await event_queue.put(json.dumps({
-                            "type": "preview",
-                            "url": url,
-                            "image": f"data:image/jpeg;base64,{screenshot_b64}"
-                        }))
-                    except:
-                        pass
-
-                    # --- Smooth Scrolling for Visibility & Lazy Loading ---
-                    # await event_queue.put(json.dumps({"type": "log", "message": "📜 Agent reading (scrolling)..."}))
-                    
-                    # Get scroll height
+                    # --- Smooth Scrolling with Live Updates ---
                     scroll_height = await page.evaluate("document.body.scrollHeight")
                     viewport_height = await page.evaluate("window.innerHeight")
-                    
-                    # Scroll in chunks
                     current_scroll = 0
+                    
                     while current_scroll < scroll_height:
+                        # Scroll
                         await page.evaluate(f"window.scrollTo(0, {current_scroll + viewport_height})")
-                        
-                        # Human-like reading pause (Randomized)
-                        await page.wait_for_timeout(random.uniform(500, 1200)) 
-                        
                         current_scroll += viewport_height
                         
-                        # Break if taking too long (max 5 scrolls)
-                        if current_scroll > viewport_height * 5:
-                            break
-                    
-                    # Scroll back to top for a final screenshot or just take it where we are?
-                    # Let's take it where we are or maybe the top is better for context. 
-                    # Actually, let's take a screenshot of the *full page* if possible, or just the visible part.
-                    # The previous screenshot was early. Let's take another one here if we want to show progress.
-                    # For now, just the scrolling action is enough visual feedback.
+                        # Move mouse randomly while reading
+                        await move_mouse_human(random.randint(100, 1000), random.randint(100, 600))
+                        
+                        # Stream update
+                        await stream_frame("Reading")
+                        
+                        # Random pause
+                        await page.wait_for_timeout(random.uniform(500, 1200))
+                        
+                        if current_scroll > viewport_height * 5: break
                     # -------------------------------------------------------
 
                     text = await page.evaluate("document.body.innerText")
-                    clean_text = ' '.join(text.split())[:8000] # Limit content size
+                    clean_text = ' '.join(text.split())[:8000]
                     return f"Source: {url}\nContent: {clean_text}\n"
                 finally:
                     await browser.close()
         except Exception as e:
-            await event_queue.put(json.dumps({
-                "type": "log", 
-                "message": f"❌ Error browsing {url}: {str(e)[:100]}"
-            }))
+            await event_queue.put(json.dumps({"type": "log", "message": f"❌ {agent_id} error: {str(e)[:50]}"}))
             return f"Source: {url}\nError: {e}\n"
 
-    # Run in parallel
-    results = await asyncio.gather(*[fetch_url(url) for url in urls])
+    # Run in parallel with IDs
+    tasks = []
+    for i, url in enumerate(urls):
+        tasks.append(fetch_url(url, f"Agent-{i+1}"))
+    
+    results = await asyncio.gather(*tasks)
     extracted_content.extend(results)
     
-    logs.append(json.dumps({"type": "log", "message": "📂 Field Agents: Mission complete. All data extracted."}))
+    logs.append(json.dumps({"type": "log", "message": "📂 Field Agents: Mission complete."}))
     return {"content": extracted_content, "logs": logs}
 
 async def synthesize_node(state: AgentState):
@@ -387,7 +380,7 @@ async def synthesize_node(state: AgentState):
         "state": "string"
       }},
       "riskReport": {{
-        "overallRiskScore": 0,
+        "overallRiskScore": 0,  // MUST be an integer between 0 (Safe) and 10 (High Risk)
         "executiveSummary": {{
           "overallRiskRating": "Low/Medium/High",
           "keyPositiveFactors": ["string"],
@@ -456,6 +449,18 @@ async def synthesize_node(state: AgentState):
         
         if json_part:
             json_data = json.loads(json_part)
+            
+            # SAFETY: Clamp Risk Score to 0-10
+            if "riskReport" in json_data and "overallRiskScore" in json_data["riskReport"]:
+                score = json_data["riskReport"]["overallRiskScore"]
+                if isinstance(score, (int, float)):
+                    # If LLM gave 0-100, normalize it. If > 10, assume it's out of scale.
+                    if score > 10:
+                        score = round(score / 10) # Try to normalize 85 -> 8.5 -> 9
+                    
+                    # Hard clamp
+                    score = max(0, min(10, int(score)))
+                    json_data["riskReport"]["overallRiskScore"] = score
         else:
             logs.append(json.dumps({"type": "log", "message": "⚠️ Analyst Agent: No JSON found in response."}))
             
