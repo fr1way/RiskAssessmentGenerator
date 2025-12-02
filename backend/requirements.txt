@@ -5,5 +5,10 @@ langchain-core
 langchain-google-genai
 langchain-community
 google-search-results
+google-api-python-client
 pydantic
 python-dotenv
+beautifulsoup4
+requests
+playwright
+langgraph

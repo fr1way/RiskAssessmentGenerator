@@ -26,7 +26,7 @@ call npm install
 
 echo.
 echo --- Starting Services ---
-start "Backend API" cmd /k "cd ..\backend && venv\Scripts\activate && uvicorn main:app --reload"
+start "Backend API" cmd /k "cd ..\backend && venv\Scripts\activate && python run.py"
 start "Frontend App" cmd /k "npm run dev"
 
 echo.

@@ -16,23 +16,18 @@ export default function Home() {
 
     setLoading(true);
     try {
-      // In a real app, we might want to parse the input first or ask for details.
-      // For now, we'll assume the input is the company name and redirect to a loading/report page
-      // or call the API directly.
+      const form = e.target as HTMLFormElement;
+      const state = (form.elements.namedItem("state") as HTMLInputElement).value;
+      const type = (form.elements.namedItem("type") as HTMLInputElement).value;
 
-      // Let's call the API to start the assessment
-      // We'll parse the input simply for now. 
-      // Ideally, we'd have a multi-step form or an agent to parse the natural language.
-      // For this demo, we'll assume the user types "Company Name, Address, State" or just "Company Name"
+      // Construct query string with all parameters
+      const params = new URLSearchParams({
+        company: input,
+        state: state,
+        type: type
+      });
 
-      // For better UX, let's just pass the raw string to the backend if it could handle it,
-      // but our backend expects structured data.
-      // Let's make a simple parser or just ask the user for details if we were building a full chat.
-      // To keep it simple and "ChatGPT-style", we'll send the input to a "parse" endpoint or just try to infer.
-
-      // SIMPLIFICATION: We will redirect to the report page with the query param
-      // and let the report page handle the API call and loading state.
-      router.push(`/report?company=${encodeURIComponent(input)}`);
+      router.push(`/report?${params.toString()}`);
 
     } catch (error) {
       console.error("Error:", error);
@@ -72,28 +67,56 @@ export default function Home() {
           transition={{ delay: 0.2, duration: 0.5 }}
           className="w-full"
         >
-          <form onSubmit={handleSubmit} className="relative group">
+          <form onSubmit={handleSubmit} className="relative group w-full max-w-2xl mx-auto space-y-4">
             <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200" />
-            <div className="relative flex items-center bg-black/80 backdrop-blur-xl rounded-xl border border-white/10 p-2 shadow-2xl">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Enter a company name (e.g. Groma, Boston, MA)..."
-                className="flex-1 bg-transparent border-none text-lg px-4 py-3 focus:ring-0 placeholder:text-white/20 text-white"
-                disabled={loading}
-              />
-              <button
-                type="submit"
-                disabled={loading || !input.trim()}
-                className="p-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Send className="w-5 h-5" />
-                )}
-              </button>
+
+            <div className="relative flex flex-col gap-3 bg-black/80 backdrop-blur-xl rounded-xl border border-white/10 p-4 shadow-2xl">
+              <div className="flex flex-col md:flex-row gap-3">
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="Company Name (e.g. Groma)"
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder:text-white/20 text-white outline-none transition-all"
+                  disabled={loading}
+                  required
+                />
+                <input
+                  type="text"
+                  name="state"
+                  id="stateInput"
+                  placeholder="State/Location (e.g. Boston, MA)"
+                  className="md:w-1/3 bg-white/5 border border-white/10 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder:text-white/20 text-white outline-none transition-all"
+                  disabled={loading}
+                  required
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  name="type"
+                  id="typeInput"
+                  placeholder="Business Type (e.g. Real Estate, Tech)"
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder:text-white/20 text-white outline-none transition-all"
+                  disabled={loading}
+                  required
+                />
+                <button
+                  type="submit"
+                  disabled={loading || !input.trim()}
+                  className="px-6 py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {loading ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <>
+                      <span>Start</span>
+                      <Send className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </form>
           <div className="mt-6 flex flex-wrap justify-center gap-3 text-sm text-muted-foreground">
