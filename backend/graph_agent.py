@@ -174,13 +174,55 @@ async def browse_node(state: AgentState):
     urls = state["filtered_urls"]
     logs.append(json.dumps({"type": "log", "message": f"🕵️‍♂️ Field Agents: Dispatching {len(urls)} agents to browse sites..."}))
     
+    # --- Deep Exploration: Scout Official Site for Sub-pages ---
+    # We want to allocate more agents to the official site.
+    # Let's find the "official" URL (usually the first one or heuristic).
+    # For now, we'll assume the first URL in filtered_urls is the most relevant/official one.
+    
+    if urls:
+        official_url = urls[0]
+        logs.append(json.dumps({"type": "log", "message": f"🕵️‍♂️ Scout Agent: Analyzing {official_url} for sub-sections (About, Team, Services)..."}))
+        
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True) # Scout is invisible/fast
+                page = await browser.new_page()
+                try:
+                    await page.goto(official_url, timeout=15000, wait_until="domcontentloaded")
+                    
+                    # Extract links
+                    links = await page.evaluate("""
+                        () => {
+                            const anchors = Array.from(document.querySelectorAll('a'));
+                            const keywords = ['about', 'team', 'mission', 'services', 'product', 'contact', 'careers', 'investors'];
+                            return anchors
+                                .filter(a => keywords.some(k => a.innerText.toLowerCase().includes(k)) || keywords.some(k => a.href.toLowerCase().includes(k)))
+                                .map(a => a.href)
+                                .filter(href => href.startsWith('http') && !href.includes('linkedin') && !href.includes('twitter') && !href.includes('facebook'));
+                        }
+                    """)
+                    
+                    # Dedup and limit
+                    unique_links = list(set(links))[:4] # Grab top 4 sub-pages
+                    if unique_links:
+                        logs.append(json.dumps({"type": "log", "message": f"✅ Scout Agent: Found {len(unique_links)} sub-pages to explore."}))
+                        # Insert them after the official url
+                        for link in unique_links:
+                            if link not in urls:
+                                urls.insert(1, link)
+                except Exception as e:
+                    logs.append(json.dumps({"type": "log", "message": f"⚠️ Scout Agent failed: {str(e)[:50]}"}))
+                finally:
+                    await browser.close()
+        except: pass
+
     extracted_content = []
     
     async def fetch_url(url, agent_id):
         try:
             async with async_playwright() as p:
                 # HEADLESS=FALSE allows the user to "literally see" the agent working
-                browser = await p.chromium.launch(headless=False, slow_mo=100, args=["--disable-blink-features=AutomationControlled"]) 
+                browser = await p.chromium.launch(headless=False, slow_mo=50, args=["--disable-blink-features=AutomationControlled"]) 
                 
                 context = await browser.new_context(
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -210,7 +252,7 @@ async def browse_node(state: AgentState):
                         cursor.style.boxShadow = '0 0 10px rgba(255, 0, 0, 0.5)';
                         cursor.style.zIndex = '999999';
                         cursor.style.pointerEvents = 'none';
-                        cursor.style.transition = 'all 0.2s ease-out';
+                        cursor.style.transition = 'all 0.1s ease-out'; // Smoother transition
                         cursor.style.transform = 'translate(-50%, -50%)';
                         document.body.appendChild(cursor);
                     };
@@ -232,7 +274,7 @@ async def browse_node(state: AgentState):
                     else route.continue_()
                 )
                 
-                # Helper to stream frame
+                # Helper to stream frame (Event-based, not continuous loop)
                 async def stream_frame(status="Active"):
                     try:
                         screenshot = await page.screenshot(type="jpeg", quality=40)
@@ -250,24 +292,28 @@ async def browse_node(state: AgentState):
                 async def move_mouse_human(x, y):
                     try:
                         await page.evaluate(f"window.moveCursor({x}, {y})")
-                        await page.mouse.move(x, y, steps=5)
-                        await stream_frame("Moving")
+                        await page.mouse.move(x, y, steps=10) # Slower, smoother steps
+                        await stream_frame("Moving") # Stream update on move
                     except: pass
 
                 try:
                     await event_queue.put(json.dumps({"type": "log", "message": f"🌐 {agent_id} connecting to: {url}"}))
                     
-                    await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                    current_status = "Loading"
+                    await page.goto(url, timeout=45000, wait_until="domcontentloaded")
                     await page.evaluate("window.installCursor()")
+                    await stream_frame("Loaded")
                     
+                    current_status = "Reading"
                     # Initial "Wake Up" Move
                     await move_mouse_human(random.randint(100, 500), random.randint(100, 500))
-                    await page.wait_for_timeout(random.uniform(500, 1000))
+                    await page.wait_for_timeout(random.uniform(1000, 2000))
                     
                     # --- Human Verification Logic ---
                     try:
                         turnstile = page.locator("iframe[src*='challenges.cloudflare.com']")
                         if await turnstile.count() > 0:
+                            current_status = "Solving CAPTCHA"
                             await event_queue.put(json.dumps({"type": "log", "message": f"🤖 {agent_id} detected Cloudflare..."}))
                             frame = turnstile.content_frame
                             if frame:
@@ -282,44 +328,71 @@ async def browse_node(state: AgentState):
                     except: pass
                     # --------------------------------
 
-                    # --- Popup Killer ---
-                    try:
-                        close_selectors = [
-                            "button[aria-label='Close']", ".close", "#close-button", 
-                            "button:has-text('No thanks')", "button:has-text('Not now')",
-                            "button:has-text('Accept all')", "button:has-text('Accept Cookies')",
-                            "[aria-label='Close modal']", "button:has-text('Continue without logging in')"
-                        ]
-                        for selector in close_selectors:
-                            if await page.locator(selector).count() > 0:
-                                loc = page.locator(selector).first
-                                box = await loc.bounding_box()
-                                if box:
-                                    await move_mouse_human(box['x'] + box['width']/2, box['y'] + box['height']/2)
-                                    await loc.click(timeout=1000)
-                                    await stream_frame("Closing Popup")
-                                    await page.wait_for_timeout(500)
-                    except: pass
-                    # ---------------------
-
                     # --- Smooth Scrolling with Live Updates ---
+                    current_status = "Analyzing Content"
                     scroll_height = await page.evaluate("document.body.scrollHeight")
                     viewport_height = await page.evaluate("window.innerHeight")
                     current_scroll = 0
                     
+                    # Expanded Popup Selectors (including LinkedIn)
+                    close_selectors = [
+                        "button[aria-label='Close']", ".close", "#close-button", 
+                        "button:has-text('No thanks')", "button:has-text('Not now')",
+                        "button:has-text('Accept all')", "button:has-text('Accept Cookies')",
+                        "[aria-label='Close modal']", "button:has-text('Continue without logging in')",
+                        "button:has-text('Maybe later')", "button:has-text('Continue as guest')",
+                        "svg[data-icon='times']", ".modal-close", "div[role='button']:has-text('Close')",
+                        "button:has-text('Stay signed out')",
+                        # LinkedIn Specifics
+                        "button[aria-label='Dismiss']", ".modal__dismiss", "li-icon[type='cancel-icon']",
+                        "button.artdeco-modal__dismiss"
+                    ]
+
                     while current_scroll < scroll_height:
-                        # Scroll
-                        await page.evaluate(f"window.scrollTo(0, {current_scroll + viewport_height})")
-                        current_scroll += viewport_height
+                        # --- PRIORITY: Popup Check ---
+                        # Check for popups BEFORE scrolling. If found, deal with it and restart loop.
+                        popup_handled = False
+                        try:
+                            for selector in close_selectors:
+                                if await page.locator(selector).count() > 0:
+                                    loc = page.locator(selector).first
+                                    if await loc.is_visible():
+                                        box = await loc.bounding_box()
+                                        if box:
+                                            # Found a popup! Stop everything and kill it.
+                                            current_status = "⛔ Popup Detected"
+                                            await stream_frame("Popup Detected")
+                                            
+                                            # Move mouse DIRECTLY to the button (no random jitter)
+                                            await page.evaluate(f"window.moveCursor({box['x'] + box['width']/2}, {box['y'] + box['height']/2})")
+                                            await page.wait_for_timeout(500) # Aiming...
+                                            
+                                            await loc.click(timeout=2000)
+                                            current_status = "💥 Popup Closed"
+                                            await stream_frame("Popup Closed")
+                                            await page.wait_for_timeout(1000) # Wait for animation
+                                            
+                                            popup_handled = True
+                                            break # Break selector loop
+                        except: pass
                         
-                        # Move mouse randomly while reading
+                        if popup_handled:
+                            continue # Skip scrolling, check again in case of another popup
+                        # -----------------------------
+
+                        # Scroll smaller chunks for smoothness
+                        scroll_step = viewport_height / 2
+                        await page.evaluate(f"window.scrollTo(0, {current_scroll + scroll_step})")
+                        current_scroll += scroll_step
+                        
+                        # Move mouse randomly ONLY if we are actually reading (no popup)
                         await move_mouse_human(random.randint(100, 1000), random.randint(100, 600))
                         
-                        # Stream update
+                        # Stream update after scroll/move
                         await stream_frame("Reading")
                         
-                        # Random pause
-                        await page.wait_for_timeout(random.uniform(500, 1200))
+                        # Pause
+                        await page.wait_for_timeout(random.uniform(1500, 3000)) 
                         
                         if current_scroll > viewport_height * 5: break
                     # -------------------------------------------------------
@@ -335,7 +408,9 @@ async def browse_node(state: AgentState):
 
     # Run in parallel with IDs
     tasks = []
-    for i, url in enumerate(urls):
+    # Limit total agents to avoid crashing system
+    final_urls = urls[:12] # Cap at 12 agents max
+    for i, url in enumerate(final_urls):
         tasks.append(fetch_url(url, f"Agent-{i+1}"))
     
     results = await asyncio.gather(*tasks)

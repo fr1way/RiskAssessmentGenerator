@@ -21,6 +21,8 @@ function ReportContent() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
+    const [showLogs, setShowLogs] = useState(false);
+
     useEffect(() => {
         if (!companyQuery) return;
 
@@ -31,6 +33,7 @@ function ReportContent() {
             setAgents({});
             setSummary("");
             setData(null);
+            setShowLogs(false); // Reset logs visibility on new search
 
             try {
                 // Construct payload
@@ -112,14 +115,23 @@ function ReportContent() {
     if (loading || !data) {
         return (
             <div className="min-h-[80vh] flex flex-col items-center justify-center p-4">
-                <div className="w-full max-w-7xl">
-                    <h2 className="text-3xl font-bold text-center mb-8 gradient-text">
-                        Analyzing {companyQuery}
-                    </h2>
+                <div className="w-full max-w-7xl relative">
+                    <div className="flex items-center justify-between mb-8">
+                        <h2 className="text-3xl font-bold gradient-text">
+                            Analyzing {companyQuery}
+                        </h2>
+                        <button
+                            onClick={() => setShowLogs(!showLogs)}
+                            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 text-sm font-mono transition-colors flex items-center gap-2"
+                        >
+                            {showLogs ? "Hide Logs" : "Show Logs"}
+                            <span className="bg-slate-900 px-1.5 py-0.5 rounded text-xs text-slate-500">{logs.length}</span>
+                        </button>
+                    </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="flex gap-8">
                         {/* Live Preview Column (Main Stage) */}
-                        <div className="lg:col-span-2">
+                        <div className={`transition-all duration-500 ease-in-out ${showLogs ? 'w-2/3' : 'w-full'}`}>
                             <div className="sticky top-8 space-y-6">
                                 <LivePreview
                                     agents={agents}
@@ -129,8 +141,10 @@ function ReportContent() {
                         </div>
 
                         {/* Logs Column (Sidebar) */}
-                        <div className="lg:col-span-1">
-                            <ResearchLog logs={logs} />
+                        <div className={`transition-all duration-500 ease-in-out overflow-hidden ${showLogs ? 'w-1/3 opacity-100' : 'w-0 opacity-0'}`}>
+                            <div className="w-full">
+                                <ResearchLog logs={logs} />
+                            </div>
                         </div>
                     </div>
                 </div>
