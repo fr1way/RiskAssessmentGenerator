@@ -1,29 +1,36 @@
-# 🕵️‍♂️ Risk Assessment AI Agent
+# Risk Assessment AI Agent
 
 > **An autonomous "ReAct" agent that researches companies, navigates complex websites, and generates comprehensive risk assessment reports in real-time.**
 
-![Project Banner](https://via.placeholder.com/1200x400?text=Risk+Assessment+AI+Agent)
+![Home Screen](assets/home.png)
 
-## 🚀 Overview
+## Overview
 
 This project is a **full-stack AI application** designed to automate the due diligence process. It uses a **LangGraph-based ReAct Agent** (Reasoning + Acting) to autonomously browse the web, overcome obstacles (like popups and login walls), and synthesize data into professional risk reports.
 
 Unlike standard scrapers, this agent **"sees"** the page using a headless browser (Playwright) and makes dynamic decisions based on what it encounters. You can watch it think and act via a **Live Agent Preview** that streams the browser view and internal logs to the frontend.
 
-## ✨ Key Features
+## Key Features
 
--   **🧠 Autonomous ReAct Agent**: Uses `LangGraph` and `Google Gemini 2.0 Flash` to reason, plan, and execute research tasks.
--   **👀 Live Agent Preview**: Watch the agent's "brain" at work with a real-time video feed of the headless browser and a streaming log of its thoughts.
--   **🛡️ Intelligent Navigation**:
-    -   **Popup Killer**: Automatically detects and closes modals, cookie banners, and login walls (including LinkedIn).
-    -   **Human Verification**: Detects and clicks "Verify you are human" checkboxes.
-    -   **Deep Scouting**: Proactively finds "Team", "About", and "Investors" pages to gather deep context.
--   **⚡ High-Performance Architecture**:
-    -   **Backend**: FastAPI with asynchronous event streaming (SSE).
-    -   **Frontend**: Next.js 14 (App Router) with Tailwind CSS and Framer Motion.
-    -   **Browsing**: Playwright with stealth plugins to avoid bot detection.
+### Autonomous ReAct Agent
+Uses `LangGraph` and `Google Gemini 2.0 Flash` to reason, plan, and execute research tasks. The agent breaks down complex queries into sub-tasks and executes them sequentially.
 
-## 🛠️ Tech Stack
+### Live Agent Preview
+Watch the agent's "brain" at work with a real-time video feed of the headless browser and a streaming log of its thoughts.
+
+![Live Preview](assets/live-preview.png)
+
+### Intelligent Navigation
+-   **Popup Handling**: Automatically detects and closes modals, cookie banners, and login walls (including LinkedIn).
+-   **Human Verification**: Detects and clicks "Verify you are human" checkboxes.
+-   **Deep Scouting**: Proactively finds "Team", "About", and "Investors" pages to gather deep context.
+
+### Comprehensive Reporting
+Generates detailed risk reports covering Operational, Financial, and Reputational risks, complete with a calculated risk score.
+
+![Risk Report](assets/report.png)
+
+## Tech Stack
 
 ### Backend
 -   **Python 3.10+**
@@ -38,9 +45,8 @@ Unlike standard scrapers, this agent **"sees"** the page using a headless browse
 -   **TypeScript**: For type-safe development.
 -   **Tailwind CSS**: For modern, responsive styling.
 -   **Framer Motion**: For smooth UI animations and transitions.
--   **Lucide React**: For beautiful icons.
 
-## 📦 Installation & Setup
+## Installation & Setup
 
 ### Prerequisites
 -   **Node.js** (v18+)
@@ -107,29 +113,6 @@ npm run dev
 ```
 </details>
 
-## 🎮 Usage
-
-1.  **Enter a Company Name**: On the homepage, type the name of the company you want to analyze (e.g., "Anthropic", "OpenAI").
-2.  **Watch the Agent**: The "Live Preview" dashboard will appear.
-    -   **Left Panel**: Real-time video feed of the agent browsing the web.
-    -   **Right Panel**: Live logs showing the agent's reasoning ("Thinking...", "Clicking...", "Reading...").
-3.  **View the Report**: Once the research is complete, a comprehensive Risk Assessment Report will be generated, covering:
-    -   Company Overview
-    -   Key Risks (Operational, Financial, Reputational)
-    -   Market Position
-    -   Final Risk Score
-
-## 🔮 Future Roadmap
-
--   [ ] **Bright Data Integration**: Add support for residential proxies to scrape highly protected sites.
--   [ ] **PDF Export**: Download the risk report as a formatted PDF.
--   [ ] **Multi-Agent Collaboration**: Split the workload between a "Researcher", "Analyst", and "Critic" agent.
--   [ ] **History & Storage**: Save past reports to a database.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📄 License
+## License
 
 This project is licensed under the MIT License.
