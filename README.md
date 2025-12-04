@@ -15,6 +15,12 @@ Unlike standard scrapers, this agent **"sees"** the page using a headless browse
 ### Autonomous ReAct Agent
 Uses `LangGraph` and `Google Gemini 2.0 Flash` to reason, plan, and execute research tasks. The agent breaks down complex queries into sub-tasks and executes them sequentially.
 
+### Multi-Agent Architecture
+Orchestrates a hierarchical team of specialized agents:
+-   **Planner**: Decomposes the user's request into specific research questions.
+-   **Workers**: Parallel browser agents that hunt for data across multiple URLs simultaneously.
+-   **Analyst**: Synthesizes findings from all workers into a cohesive final report.
+
 ### Live Agent Preview
 Watch the agent's "brain" at work with a real-time video feed of the headless browser and a streaming log of its thoughts.
 
