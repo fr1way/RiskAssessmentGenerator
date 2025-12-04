@@ -165,7 +165,7 @@ async def filter_node(state: AgentState):
     logs.append(json.dumps({"type": "log", "message": f"✅ Filter Agent: Final selection: {len(filtered_urls)} sources."}))
     return {"filtered_urls": filtered_urls, "logs": logs}
 
-from shared_resources import event_queue
+from backend.shared_resources import event_queue
 import base64
 
 async def browse_node(state: AgentState):
@@ -215,6 +215,11 @@ async def browse_node(state: AgentState):
                 finally:
                     await browser.close()
         except: pass
+
+    # --- ReAct Agent Integration ---
+    from backend.tools import BrowserActions
+    from langchain_core.tools import tool
+    from langgraph.prebuilt import create_react_agent
 
     extracted_content = []
     
@@ -274,132 +279,83 @@ async def browse_node(state: AgentState):
                     else route.continue_()
                 )
                 
-                # Helper to stream frame (Event-based, not continuous loop)
-                async def stream_frame(status="Active"):
-                    try:
-                        screenshot = await page.screenshot(type="jpeg", quality=40)
-                        b64 = base64.b64encode(screenshot).decode("utf-8")
-                        await event_queue.put(json.dumps({
-                            "type": "preview",
-                            "agent_id": agent_id,
-                            "url": url,
-                            "status": status,
-                            "image": f"data:image/jpeg;base64,{b64}"
-                        }))
-                    except: pass
-
-                # Helper to move cursor visibly
-                async def move_mouse_human(x, y):
-                    try:
-                        await page.evaluate(f"window.moveCursor({x}, {y})")
-                        await page.mouse.move(x, y, steps=10) # Slower, smoother steps
-                        await stream_frame("Moving") # Stream update on move
-                    except: pass
-
+                # Initialize Browser Actions
+                actions = BrowserActions(page, event_queue, agent_id)
+                
                 try:
                     await event_queue.put(json.dumps({"type": "log", "message": f"🌐 {agent_id} connecting to: {url}"}))
                     
-                    current_status = "Loading"
                     await page.goto(url, timeout=45000, wait_until="domcontentloaded")
                     await page.evaluate("window.installCursor()")
-                    await stream_frame("Loaded")
+                    await actions.stream_frame("Loaded")
                     
-                    current_status = "Reading"
-                    # Initial "Wake Up" Move
-                    await move_mouse_human(random.randint(100, 500), random.randint(100, 500))
-                    await page.wait_for_timeout(random.uniform(1000, 2000))
+                    # --- Define Tools for this specific Agent ---
+                    @tool
+                    async def read_page_tool():
+                        """Reads the visible text content of the current page. Use this to gather information."""
+                        return await actions.read_page()
+
+                    @tool
+                    async def scroll_down_tool():
+                        """Scrolls down the page to reveal more content. Use this if you need to see more."""
+                        return await actions.scroll_down()
+
+                    @tool
+                    async def click_element_tool(selector: str):
+                        """Clicks on an element matching the CSS selector. Use this to navigate or close modals."""
+                        return await actions.click_element(selector)
+
+                    @tool
+                    async def close_popup_tool():
+                        """Checks for and closes any visible popups or modals. Use this immediately if a popup blocks your view."""
+                        return await actions.close_popup()
+                        
+                    @tool
+                    async def get_links_tool(category: str):
+                        """Finds links matching a category (e.g., 'about', 'team', 'contact'). Returns URLs."""
+                        return await actions.get_links(category)
+
+                    tools = [read_page_tool, scroll_down_tool, click_element_tool, close_popup_tool, get_links_tool]
                     
-                    # --- Human Verification Logic ---
-                    try:
-                        turnstile = page.locator("iframe[src*='challenges.cloudflare.com']")
-                        if await turnstile.count() > 0:
-                            current_status = "Solving CAPTCHA"
-                            await event_queue.put(json.dumps({"type": "log", "message": f"🤖 {agent_id} detected Cloudflare..."}))
-                            frame = turnstile.content_frame
-                            if frame:
-                                checkbox = frame.locator("input[type='checkbox']")
-                                if await checkbox.count() > 0:
-                                    box = await checkbox.bounding_box()
-                                    if box:
-                                        await move_mouse_human(box['x'] + 10, box['y'] + 10)
-                                        await checkbox.click()
-                                        await stream_frame("Verifying")
-                                        await page.wait_for_timeout(3000)
-                    except: pass
-                    # --------------------------------
-
-                    # --- Smooth Scrolling with Live Updates ---
-                    current_status = "Analyzing Content"
-                    scroll_height = await page.evaluate("document.body.scrollHeight")
-                    viewport_height = await page.evaluate("window.innerHeight")
-                    current_scroll = 0
+                    # Initialize ReAct Agent
+                    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=os.getenv("GOOGLE_API_KEY"), temperature=0)
+                    agent = create_react_agent(llm, tools)
                     
-                    # Expanded Popup Selectors (including LinkedIn)
-                    close_selectors = [
-                        "button[aria-label='Close']", ".close", "#close-button", 
-                        "button:has-text('No thanks')", "button:has-text('Not now')",
-                        "button:has-text('Accept all')", "button:has-text('Accept Cookies')",
-                        "[aria-label='Close modal']", "button:has-text('Continue without logging in')",
-                        "button:has-text('Maybe later')", "button:has-text('Continue as guest')",
-                        "svg[data-icon='times']", ".modal-close", "div[role='button']:has-text('Close')",
-                        "button:has-text('Stay signed out')",
-                        # LinkedIn Specifics
-                        "button[aria-label='Dismiss']", ".modal__dismiss", "li-icon[type='cancel-icon']",
-                        "button.artdeco-modal__dismiss"
-                    ]
+                    # Run the Agent
+                    prompt = f"""
+                    You are an autonomous web researcher. Your goal is to extract relevant information about the company from this page: {url}
+                    
+                    1. **CHECK FOR POPUPS REPEATEDLY**: Call `close_popup_tool` at the start. If you still see a login wall or overlay, call it again.
+                    2. **VERIFY ACCESS**: If the page content is hidden behind a modal, you MUST close it before reading.
+                    3. **EXPLORE**: Scroll down to see the content.
+                    4. **READ**: Read the page content.
+                    5. **NAVIGATE**: If the page is empty or irrelevant, look for "About" or "Team" links using `get_links_tool`.
+                    6. **FINISH**: Once you have enough info, stop.
+                    
+                    Limit your actions to 10 steps max.
+                    """
+                    
+                    messages = [("human", prompt)]
+                    final_content = ""
+                    
+                    async for chunk in agent.astream({"messages": messages}):
+                        if "agent" in chunk:
+                            # Log agent thought/action
+                            msg = chunk["agent"]["messages"][0]
+                            # await actions.log(f"Thinking: {msg.content[:50]}...")
+                        elif "tools" in chunk:
+                            # Log tool output
+                            msg = chunk["tools"]["messages"][0]
+                            # await actions.log(f"Tool Output: {msg.content[:50]}...")
+                            if msg.name == "read_page_tool":
+                                final_content += msg.content + "\n"
+                                
+                    if not final_content:
+                        # Fallback if agent didn't explicitly read
+                        final_content = await actions.read_page()
+                        
+                    return f"Source: {url}\nContent: {final_content}\n"
 
-                    while current_scroll < scroll_height:
-                        # --- PRIORITY: Popup Check ---
-                        # Check for popups BEFORE scrolling. If found, deal with it and restart loop.
-                        popup_handled = False
-                        try:
-                            for selector in close_selectors:
-                                if await page.locator(selector).count() > 0:
-                                    loc = page.locator(selector).first
-                                    if await loc.is_visible():
-                                        box = await loc.bounding_box()
-                                        if box:
-                                            # Found a popup! Stop everything and kill it.
-                                            current_status = "⛔ Popup Detected"
-                                            await stream_frame("Popup Detected")
-                                            
-                                            # Move mouse DIRECTLY to the button (no random jitter)
-                                            await page.evaluate(f"window.moveCursor({box['x'] + box['width']/2}, {box['y'] + box['height']/2})")
-                                            await page.wait_for_timeout(500) # Aiming...
-                                            
-                                            await loc.click(timeout=2000)
-                                            current_status = "💥 Popup Closed"
-                                            await stream_frame("Popup Closed")
-                                            await page.wait_for_timeout(1000) # Wait for animation
-                                            
-                                            popup_handled = True
-                                            break # Break selector loop
-                        except: pass
-                        
-                        if popup_handled:
-                            continue # Skip scrolling, check again in case of another popup
-                        # -----------------------------
-
-                        # Scroll smaller chunks for smoothness
-                        scroll_step = viewport_height / 2
-                        await page.evaluate(f"window.scrollTo(0, {current_scroll + scroll_step})")
-                        current_scroll += scroll_step
-                        
-                        # Move mouse randomly ONLY if we are actually reading (no popup)
-                        await move_mouse_human(random.randint(100, 1000), random.randint(100, 600))
-                        
-                        # Stream update after scroll/move
-                        await stream_frame("Reading")
-                        
-                        # Pause
-                        await page.wait_for_timeout(random.uniform(1500, 3000)) 
-                        
-                        if current_scroll > viewport_height * 5: break
-                    # -------------------------------------------------------
-
-                    text = await page.evaluate("document.body.innerText")
-                    clean_text = ' '.join(text.split())[:8000]
-                    return f"Source: {url}\nContent: {clean_text}\n"
                 finally:
                     await browser.close()
         except Exception as e:

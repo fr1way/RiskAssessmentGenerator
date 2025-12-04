@@ -32,7 +32,7 @@ class AssessmentRequest(BaseModel):
     state: str
     companyType: str = "other"
 
-from graph_agent import create_graph
+from backend.graph_agent import create_graph
 
 graph = create_graph()
 
@@ -109,7 +109,7 @@ async def assess_company(request: AssessmentRequest):
 
     # Let's write the actual generator
     async def event_generator():
-        from shared_resources import event_queue
+        from backend.shared_resources import event_queue
         
         inputs = {
             "company_name": request.companyName,
