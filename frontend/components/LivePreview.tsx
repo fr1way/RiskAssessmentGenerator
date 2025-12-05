@@ -53,7 +53,7 @@ export default function LivePreview({ agents, isActive }: LivePreviewProps) {
                                         {agent.id}
                                     </div>
                                     <div className="px-2 py-0.5 rounded bg-white/10 text-[10px] text-slate-300 font-mono">
-                                        LIVE | 20 FPS
+                                        LIVE
                                     </div>
                                 </div>
                                 <div className="text-xs text-slate-300 truncate max-w-[200px] flex items-center gap-2">
@@ -67,7 +67,7 @@ export default function LivePreview({ agents, isActive }: LivePreviewProps) {
                                 <img
                                     src={agent.image}
                                     alt={`Preview ${agent.id}`}
-                                    className="w-full h-full object-cover opacity-100 transition-none" // Remove transition for instant FPS updates
+                                    className="w-full h-full object-contain bg-black opacity-100 transition-none" // object-contain prevents zooming jumps
                                 />
                             ) : (
                                 <div className="w-full h-full flex items-center justify-center text-slate-600 bg-slate-950">
